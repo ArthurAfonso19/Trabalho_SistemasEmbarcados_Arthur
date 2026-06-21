@@ -1,0 +1,51 @@
+ESSE DOCUMENTO POSSUI LINKS QUE LEVAM A PAGINAS DE DOCUMENTACAO, GUIAS E REFERENCIAS UTEIS PARA O DESENVOLVIMENTO:
+
+RUST
+- https://doc.rust-lang.org/stable/
+- https://doc.rust-lang.org/book/
+- https://doc.rust-lang.org/rust-by-example/meta/doc.html
+- https://rust-lang.org/pt-BR/learn/
+- https://doc.rust-lang.org/embedded-book/
+- https://doc.rust-lang.org/reference/
+- https://doc.rust-lang.org/nomicon/
+- https://rust-lang.github.io/async-book/
+
+EMBASSY
+- https://embassy.dev
+- https://embassy.dev/book/
+- https://docs.embassy.dev/embassy-executor/0.10.0/cortex-m/index.html
+- https://docs.embassy.dev/embassy-stm32/0.6.0/stm32g474re/index.html
+- https://docs.embassy.dev/embassy-time/0.5.0/
+- https://docs.embassy.dev/embassy-sync/0.8.0/
+- https://docs.embassy.dev/embassy-futures/0.1.1/
+- https://github.com/embassy-rs/embassy
+
+TRAITS E HAL
+- https://docs.rs/embedded-hal/latest/embedded_hal/
+- https://docs.rs/embedded-hal-async/latest/embedded_hal_async/
+- https://docs.rs/embedded-io/latest/embedded_io/
+- https://docs.rs/embedded-io-async/latest/embedded_io_async/
+
+DEBUG, LOG E FLASH
+- https://docs.rs/defmt/latest/defmt/
+- https://docs.rs/defmt-rtt/latest/defmt_rtt/
+- https://docs.rs/panic-probe/latest/panic_probe/
+- https://probe.rs/docs/
+
+RUNTIME E BOOT
+- https://docs.rs/cortex-m/latest/cortex_m/
+- https://docs.rs/cortex-m-rt/latest/cortex_m_rt/
+
+DRIVER DE REFERENCIA ADXL345
+- https://docs.rs/adxl345-async/latest/adxl345_async/
+- https://docs.rs/crate/adxl345-async/latest/source/
+
+STM32G4 E PLACA
+- ADICIONAR AQUI O DATASHEET OFICIAL DO STM32G474RE
+- ADICIONAR AQUI O REFERENCE MANUAL OFICIAL DA FAMILIA STM32G4
+- ADICIONAR AQUI O MANUAL DA PLACA UTILIZADA, SE HOUVER
+
+SENSORES
+- ADICIONAR AQUI O LINK OFICIAL OU PAGINA DO AM2302/DHT22
+- ADICIONAR AQUI O LINK OFICIAL OU PAGINA DO HC-SR04
+- ADICIONAR AQUI O DATASHEET OFICIAL DO ADXL345
