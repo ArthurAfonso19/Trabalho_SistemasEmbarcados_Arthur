@@ -307,9 +307,8 @@ async fn init_accelerometer(
 async fn adc_task(mut adc: Adc<'static, ADC2>, mut adc_pin: AnyAdcChannel<'static, ADC2>) {
     loop {
         // Na versão 0.6, o SampleTime mudou e é passado direto no método de leitura
-        let measured = adc.blocking_read(&mut adc_pin, SampleTime::CYCLES247_5);
-
-        defmt::info!("ADC Valor: {}", measured);
+        // Mantem a aquisicao ativa sem poluir o RTT durante o uso da shell.
+        let _measured = adc.blocking_read(&mut adc_pin, SampleTime::CYCLES247_5);
 
         // Evita travar a CPU em busy-waiting infinito na task
         embassy_time::Timer::after_millis(500).await;
