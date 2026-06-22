@@ -1,6 +1,8 @@
+
 #![no_std]
 #![no_main]
-
+mod app;
+use crate::app::shell::shell_taks;
 //use cortex_m::Peripherals;
 use core::arch::asm;
 use cortex_m_rt::pre_init;
@@ -433,7 +435,8 @@ async fn main(spawner: Spawner)
     //Cada periférico 
     spawner.spawn(unwrap!(adc_task(adc, adc_channel)));
     spawner.spawn(unwrap!(button_task(button)));
-    spawner.spawn(unwrap!(uart_task(lpuart1)));
+    //spawner.spawn(unwrap!(uart_task(lpuart1)));
+    spawner.spawn(unwrap!(shell_taks(lpuart1)));
     spawner.spawn(unwrap!(pwm_task(pwm)));
     spawner.spawn(unwrap!(accel_task(accel)));
 
