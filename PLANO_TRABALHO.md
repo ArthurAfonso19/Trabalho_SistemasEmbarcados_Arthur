@@ -2,7 +2,12 @@
 
 Este documento e o plano de execucao do trabalho, refinado apos analise do codigo fonte, dos datasheets (STM32G474RE, RM0440, AM2302, HC-SR04), do driver ADXL345 de referencia e da documentacao oficial do ecossistema Embassy.
 
-O plano esta organizado em fases sequenciais. Cada fase tem objetivo, passos concretos, entregaveis esperados e observacoes tecnicas.
+O plano esta organizado em fases sequenciais. Cada fase tem objetivo, passos concretos, entregaveis esperados, observacoes tecnicas e um ciclo de desenvolvimento e teste.
+
+Estado atual do plano:
+
+- Fase 1 concluida
+- Proxima fase sugerida: Fase 2
 
 ---
 
@@ -26,21 +31,35 @@ O escopo total inclui:
 
 ## 2. Estado Atual Do Projeto
 
+### Situacao da Fase 1
+
+A Fase 1 pode ser considerada concluida porque:
+
+- `cargo check` ja passa
+- `cargo run` ja foi validado no hardware
+- o firmware atual continua funcional na placa
+- o `src/main.rs` foi reorganizado por papel:
+  - infraestrutura
+  - setup
+  - runtime
+  - `main`
+- a `main()` ficou mais enxuta e orientada a orquestracao
+
 ### Ja implementado (baseline do professor)
 
 | Componente | Localizacao | Tecnologia |
 |---|---|---|
-| Blink LED `PA5` | `src/main.rs:321-329` | GPIO com `Timer::after_millis` |
-| Botao EXTI `PC13` | `src/main.rs:53-62, 230` | `ExtiInput` com `wait_for_rising_edge/wait_for_falling_edge` |
-| Eco serial `LPUART1` | `src/main.rs:67-78` | `Uart` async com buffer de 1 byte |
-| Leitura ADC `PA7` | `src/main.rs:35-48, 238` | `Adc::blocking_read` |
-| Sensor temperatura interna | `src/main.rs:234, 243` | `enable_temperature` no ADC1 |
-| PWM `TIM1` em `PC0` | `src/main.rs:82-97, 260` | `SimplePwm` com duty cycle variavel |
-| I2C1 com ADXL345 | `src/main.rs:101-110, 275-316` | `I2c` async + `adxl345-async` driver |
-| `bind_interrupts!` | `src/main.rs:117-127` | LPUART, DMA, I2C, EXTI |
-| Clock 170 MHz | `src/main.rs:194-218` | HSE 24 MHz + PLL |
-| `#[pre_init]` | `src/main.rs:140-169` | Copia `.ccmdata` e `.data2` |
-| `irqs` | `src/main.rs:230, 256, 279` | Estrutura de interrupcoes |
+| Blink LED `PA5` | `src/main.rs` | GPIO com `Timer::after_millis` |
+| Botao EXTI `PC13` | `src/main.rs` | `ExtiInput` com `wait_for_rising_edge/wait_for_falling_edge` |
+| Eco serial `LPUART1` | `src/main.rs` | `Uart` async com buffer de 1 byte |
+| Leitura ADC `PA7` | `src/main.rs` | `Adc::blocking_read` |
+| Sensor temperatura interna | `src/main.rs` | `enable_temperature` no ADC1 |
+| PWM `TIM1` em `PC0` | `src/main.rs` | `SimplePwm` com duty cycle variavel |
+| I2C1 com ADXL345 | `src/main.rs` | `I2c` async + `adxl345-async` driver |
+| `bind_interrupts!` | `src/main.rs` | LPUART, DMA, I2C, EXTI |
+| Clock 170 MHz | `src/main.rs` | HSE 24 MHz + PLL |
+| `#[pre_init]` | `src/main.rs` | Copia `.ccmdata` e `.data2` |
+| `irqs` | `src/main.rs` | Estrutura de interrupcoes |
 
 ### Ainda nao implementado
 
@@ -51,6 +70,18 @@ O escopo total inclui:
 - drivers primarios genericos desacoplados do Embassy
 - drivers secundarios AM2302 e HC-SR04
 - arquitetura agnostica de RTOS
+
+### Fluxo de trabalho adotado
+
+Para as proximas fases, o fluxo padrao sera:
+
+1. Implementar uma parte pequena da fase
+2. Rodar `cargo check`
+3. Se compilar, rodar `cargo run`
+4. Testar o comportamento real na placa
+5. Registrar o que ficou validado antes de seguir
+
+Isso reduz risco e evita acumular muitas mudancas sem validacao intermediaria.
 
 ---
 
@@ -627,32 +658,52 @@ Esta secao precisa ser revisada com a placa real em maos e o `stm32g474re.pdf` p
 
 ## 12. Fases De Execucao
 
+### Regra geral para todas as fases
+
+Cada fase deve seguir o mesmo ciclo curto:
+
+1. Implementar apenas o escopo da fase atual
+2. Validar compilacao com `cargo check`
+3. Validar gravacao e execucao com `cargo run`
+4. Testar no hardware o comportamento esperado da fase
+5. So depois avancar para a fase seguinte
+
+Quando uma fase for grande, quebrar em subetapas pequenas e repetir esse mesmo ciclo.
+
 ### Fase 1 - Baseline e Modularizacao
+
+**Status**: concluida
 
 **Objetivo**: compilar, executar e organizar o codigo existente.
 
 **Passos**:
 1. Executar `cargo check` e confirmar compilacao
-2. Se possivel, `cargo run` com probe-rs (opcional)
-3. Criar estrutura de pastas com modulos vazios:
-   - `src/app/` com `mod.rs`, `shell.rs`, `monitor.rs`
-   - `src/drivers/` com `mod.rs`
-4. Mover blocos de codigo do `main.rs` para modulos:
-   - LED -> `app/led_task.rs`
-   - Botao -> `app/button_task.rs`
-   - ADXL345 -> `drivers/adxl345.rs` (apenas mover, sem refatorar)
+2. Executar `cargo run` e validar o firmware no hardware
+3. Reorganizar o `src/main.rs` sem alterar o comportamento existente
+4. Separar o arquivo por infraestrutura, setup, runtime e `main`
+5. Validar novamente com `cargo check` e teste na placa
 
 **Entregaveis**:
-- Projeto compilando com a nova estrutura modular
-- `main.rs` enxuto, apenas inicializacao e spawn
+- Projeto compilando
+- Firmware validado no hardware
+- `main.rs` reorganizado e mais legivel
+- `main()` enxuta, focada em orquestracao
 
-**Observacao**: nao quebrar o funcionamento durante a modularizacao. Cada extracao deve ser testada.
+**Observacao**: a fase foi concluida sem modularizacao em varios arquivos. Neste momento, a reorganizacao interna do `main.rs` ja atende bem ao objetivo de baseline e organizacao.
 
 ---
 
 ### Fase 2 - Shell UART
 
 **Objetivo**: substituir o eco serial por um console com comandos.
+
+**Ciclo de validacao da fase**:
+
+1. Implementar primeiro apenas `help`
+2. Rodar `cargo check`
+3. Rodar `cargo run`
+4. Testar digitacao real pela UART
+5. So depois adicionar `status`
 
 **Passos**:
 1. Em `app/shell.rs`, criar:
@@ -680,6 +731,13 @@ Esta secao precisa ser revisada com a placa real em maos e o `stm32g474re.pdf` p
 
 **Objetivo**: criar estrutura para coletar metricas e expor via shell.
 
+**Ciclo de validacao da fase**:
+
+1. Implementar a estrutura de metricas
+2. Validar compilacao
+3. Instrumentar uma tarefa de cada vez
+4. Testar o comando `tasks` antes de adicionar `mem` e `uptime`
+
 **Passos**:
 1. Em `app/monitor.rs`, criar `TaskMetrics`:
    - nome
@@ -705,6 +763,14 @@ Esta secao precisa ser revisada com a placa real em maos e o `stm32g474re.pdf` p
 
 **Objetivo**: transformar LED em tarefa de sistema monitoravel e controlavel.
 
+**Ciclo de validacao da fase**:
+
+1. Extrair o LED para task propria
+2. Confirmar que o blink continua funcionando
+3. Adicionar controle on/off
+4. Testar via shell
+5. Adicionar ajuste de periodo por ultimo
+
 **Passos**:
 1. Extrair loop do LED para `app/led_task.rs`
 2. Criar `LedControl`:
@@ -726,6 +792,13 @@ Esta secao precisa ser revisada com a placa real em maos e o `stm32g474re.pdf` p
 ### Fase 5 - Driver AM2302
 
 **Objetivo**: implementar driver generico para o sensor de temperatura e umidade.
+
+**Ciclo de validacao da fase**:
+
+1. Implementar o driver isoladamente
+2. Validar leitura minima em uma tarefa simples
+3. Testar checksum e timeout no hardware
+4. So depois integrar ao comando `sensors`
 
 **Passos**:
 1. Estudar datasheet para confirmar:
@@ -765,6 +838,13 @@ Esta secao precisa ser revisada com a placa real em maos e o `stm32g474re.pdf` p
 ### Fase 6 - Driver HC-SR04
 
 **Objetivo**: implementar driver generico para o sensor ultrassonico.
+
+**Ciclo de validacao da fase**:
+
+1. Validar primeiro a estrategia de medicao do pulso
+2. Testar trigger + echo sem shell
+3. Confirmar compatibilidade eletrica do `ECHO`
+4. So depois integrar ao comando `sensors`
 
 **Passos**:
 1. Definir trait `PulseInput`:
@@ -813,6 +893,12 @@ Esta secao precisa ser revisada com a placa real em maos e o `stm32g474re.pdf` p
 
 **Objetivo**: criar comando `rt` com informacoes de comportamento temporal.
 
+**Ciclo de validacao da fase**:
+
+1. Calcular metrica em uma unica tarefa de referencia
+2. Validar saida do comando `rt`
+3. Estender para outras tarefas somente depois da primeira validacao
+
 **Passos**:
 1. Em `app/monitor.rs`, estender `TaskMetrics`:
    - `intervalo_atual` vs `intervalo_esperado`
@@ -836,6 +922,13 @@ Esta secao precisa ser revisada com a placa real em maos e o `stm32g474re.pdf` p
 ### Fase 8 - Integracao, Testes E Documentacao
 
 **Objetivo**: finalizar o trabalho com verificacao e documentacao.
+
+**Ciclo de validacao da fase**:
+
+1. Testar cada subsistema separadamente
+2. Testar o conjunto completo no hardware
+3. Registrar limitacoes reais observadas
+4. So entao consolidar a documentacao final
 
 **Passos**:
 1. Verificar que nenhuma tarefa faz polling:
@@ -906,12 +999,13 @@ Estas duvidas precisam ser resolvidas com o professor ou com a analise do hardwa
 
 ## 16. Proximos Passos Imediatos
 
-A ordem concreta para comecar:
+A ordem concreta a partir do estado atual:
 
-1. Executar `cargo check` no projeto atual
-2. Criar estrutura de modulos em `src/`
-3. Modularizar sem quebrar o codigo existente
-4. Comandar `cargo check` apos cada movimento
-5. Iniciar a implementacao do shell
+1. Iniciar a Fase 2 com um shell minimo sobre a UART ja existente
+2. Implementar primeiro apenas leitura de linha + comando `help`
+3. Rodar `cargo check`
+4. Rodar `cargo run`
+5. Testar o comando no terminal serial real
+6. Depois adicionar `status`
 
-Se voce concordar com este plano, podemos comecar pela Fase 1.
+Se voce concordar com este plano refinado, o proximo passo natural e comecar a Fase 2 em incrementos pequenos e testaveis.
