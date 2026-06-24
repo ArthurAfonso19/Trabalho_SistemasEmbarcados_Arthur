@@ -1,5 +1,5 @@
 use defmt::info;
-use embassy_stm32::usart::Uart;
+use embassy_stm32::{mode, usart::Uart};
 use heapless::{String, Vec};
 
 //use crate::app::shell::RxState::Receiving;
@@ -110,6 +110,23 @@ impl ShellBuffer
         Ok(())
     }
 
+    //Quando o usuário aperta "Backspace", não basta apagar visualmente
+    //Também é preciso remover o último byte armazenado no buffer da shell
+    fn pop_last(&mut self) -> Option<u8>
+    {
+        //Se houver bytes acumaldos, não há o que apagar 
+        if self.len == 0
+        {
+            return None;
+        }
+
+        //Volta uma posição na cauda do buffer circular 
+        self.tail = (self.tail + RX_BUF_SIZE - 1) % RX_BUF_SIZE;
+        let byte = self.buf[self.tail];
+        self.len -= 1;
+        Some(byte)
+    }
+
     fn pop_raw(&mut self) -> Option<u8>
     {
         if self.len == 0
@@ -172,7 +189,7 @@ impl ShellBuffer
         {
             if line.push(byte as char).is_err()
             {
-                self.clear();;
+                self.clear();
                 return Err(ShellError::BufferFull);
             }    
         }
@@ -248,6 +265,27 @@ pub fn execute_command(cmd: &ParsedCommand) -> ShellResponse
     out
 }
 
+async fn echo_input_byte(
+    uart: &mut Uart<'static, embassy_stm32::mode::Async>,
+    byte: u8,
+){
+    match byte
+    {
+        b'\r' | b'\n' => {
+            //Mostrar uma quebra de linha correta no terminal serial 
+            let _ = uart.write(b"\r\n").await;
+        }
+        0x08 | 0x7F => {
+            //Move para trás, apaga o caractere na tela e volta de novo 
+            let _ = uart.write(b"\x08 \x08").await;
+        }
+        _ => {
+            //Ecoa o byte normal para o usuário ver o que digitou 
+            let _ = uart.write(&[byte]).await;
+        }
+    }
+}
+
 // Task da shell UART
 //
 // Responsabilidades:
@@ -269,21 +307,50 @@ pub async fn shell_taks(mut uart: Uart<'static, embassy_stm32::mode::Async>)
     {
         //Le um byte por vez da UART
         uart.read(&mut rx).await.unwrap();
+        let byte = rx[0];
 
-        //Alimenta o buffer da shell
+        match byte 
+        {
+            0x08 | 0x7F => {
+                //Se o usuário apertou Backspace/Delete e há algo no buffer,
+                //  apagamos do buffer e também da tela 
+                if shell.pop_last().is_some()
+                {
+                    echo_input_byte(&mut uart, byte).await;
+                }
+                continue;
+            }
+
+            b'\n' => {
+                //Ignora LF sozinho para evitar eco duplo em terminais CRLF
+                continue;
+            }
+            b'\r' => {
+                //Ecoa Enter como quebra de linha visual no terminal 
+                echo_input_byte(&mut uart, byte).await;
+            }
+            _ => {
+                //Ecoa o caractere normal antes de processar a entrada 
+                echo_input_byte(&mut uart, byte).await;
+            }
+        }
+
+        //Alimenta o buffer da shell com o byte recebido s
         match shell.push_byte(rx[0])
         {
             Ok(()) => {}
             Err(ShellError::BufferFull) =>
             {
+                //A resposta começa em nova linha para não grudar no texto digitado
                 let _ = uart.write(b"Error: linha muito longa.\r\n").await;
                 shell.clear();
                 continue;
             }
             Err(_) => 
             {
+                // Erro pequeno e direto para manter a shell limpa 
                 let _ = uart.write(b"Erro de recepcao. \r\n").await;
-                shell.clear();;
+                shell.clear();
                 continue;
             }
         } 
@@ -294,7 +361,7 @@ pub async fn shell_taks(mut uart: Uart<'static, embassy_stm32::mode::Async>)
             Ok(Some(line)) => match parse_command(line.as_str())
             {
                 Ok(Some(cmd)) => {
-                    let response = execute_command((&cmd));
+                    let response = execute_command(&cmd);
                     let _ = uart.write(response.as_bytes()).await;
                 }
 
