@@ -2,8 +2,10 @@
 #![no_std]
 #![no_main]
 mod app;
+use crate::app::led_task::{led_task, LedControl};
 use crate::app::shell::shell_taks;
 use crate::app::monitor::SystemMonitor;
+
 //use cortex_m::Peripherals;
 use core::arch::asm;
 use cortex_m_rt::pre_init;
@@ -59,6 +61,9 @@ unsafe extern "C"
 // Permite que outros módulos do projeto leaim o monitor compartilhado 
 pub(crate) static MONITOR: Mutex<CriticalSectionRawMutex, SystemMonitor> =
     Mutex::new(SystemMonitor::new());
+
+pub(crate) static LED_CONTROL: Mutex<CriticalSectionRawMutex, LedControl> = 
+    Mutex::new(LedControl::new());
 
 //bind_interrupts!(struct Irqs {
 //    TIM2 => timer::CaptureCompareInterruptHandler<peripherals::TIM2>;
@@ -423,24 +428,6 @@ async fn accel_task(mut accel: AccelDevice) {
     }
 }
 
-async  fn run_led_loop(pa5: Peri<'static, peripherals::PA5>) -> ! {
-    let  mut led = Output::new(pa5, Level::High, Speed::Low);
-
-    loop 
-    {
-        led.set_high();
-
-        //Registra a execução associada a esse ciclo 
-        mark_led_execution().await;
-
-        Timer::after_millis(500).await;
-
-        led.set_low();
-        Timer::after_millis(500).await;    
-    }
-}
-
-
 async fn mark_adc_execution()
 {
     //Captura o instante atual em milissegundos 
@@ -465,7 +452,7 @@ async fn mark_button_execution()
     monitor.button.mark_execution(now_ms); 
 }
 
-async fn mark_led_execution()
+pub(crate) async fn mark_led_execution()
 {
         //Captura o instante atual em milissegundos 
     let now_ms = Instant::now().as_millis() as u64;
@@ -524,8 +511,11 @@ async fn main(spawner: Spawner)
     spawner.spawn(unwrap!(shell_taks(lpuart1)));
     spawner.spawn(unwrap!(pwm_task(pwm)));
     spawner.spawn(unwrap!(accel_task(accel)));
+    spawner.spawn(unwrap!(led_task(p.PA5)));
 
     // === 6. Loop Principal ===
-    //Fica piscando o LED, nunca retorna 
-    run_led_loop(p.PA5).await;
+    // Mantem a main viva enquanto as tasks rodam em paralelo.
+    loop {
+        Timer::after_secs(1).await;
+    }
 }

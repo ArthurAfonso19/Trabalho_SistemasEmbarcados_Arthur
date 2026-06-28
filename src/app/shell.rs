@@ -1,3 +1,4 @@
+//use cortex_m::register::control;
 use defmt::info;
 use embassy_stm32::usart::Uart;
 use heapless::{String, Vec};
@@ -6,7 +7,7 @@ use heapless::{String, Vec};
 
 
 use crate::app::monitor::TaskMetrics;
-use crate::MONITOR;
+use crate::{LED_CONTROL, MONITOR};
 use embassy_time::Instant;
 use core::fmt::Write;
 
@@ -80,6 +81,11 @@ pub const  COMMANDS: &[CommandEntry] = &[
     CommandEntry{
         name: "mem",
         help: "Mostra o tamanho das seções de memória",
+    },
+
+    CommandEntry{
+        name: "led",
+        help: "Controla o LED: on, off, period <ms>",
     },
 
     CommandEntry{
@@ -373,6 +379,50 @@ pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
             else 
             {
                 let _ = out.push_str("\x1B[2J\x1B[H");   
+            }
+        }
+
+        "led" => {
+            match  cmd.args.as_slice() {
+                ["on"] => {
+                    let mut control = LED_CONTROL.lock().await;
+                    control.set_enabled(true);
+                    let _ = out.push_str("LED ligado. \r\n");
+                }
+
+                ["off"] => {
+                    // Desliga o LED de forma deterministica 
+                    let mut control = LED_CONTROL.lock().await;
+                    control.set_enabled(false);
+                    let _ = out.push_str("LED desligado.\r\n");
+                }
+
+                ["period", value] => {
+                    match value.parse::<u32>() 
+                    {
+                        Ok(period_ms) if period_ms >= 2 => {
+                            let mut control = LED_CONTROL.lock().await;
+                            control.set_period(period_ms);
+
+                            let _ = out.push_str("Periodo do LED ajustado para ");
+                            let _ = write!(out, "{}", period_ms);
+                            let _ = out.push_str(" ms\r\n");
+                        }
+
+                        Ok(_) => {
+                            let _ = out.push_str("Erro: o periodo deve ser maior ou igual a 2 ms.\r\n");
+                        }
+
+                        Err(_) => {
+                            let _ = out.push_str("Erro: periodo invalido. Use um numero inteiro em ms.\r\n");
+                        }
+                    }
+                }
+
+                _ => {
+                    //Qualquer outro formato cai em erro de uso
+                    let _ = out.push_str("Uso: led on | led off | led period <ms>\r\n");
+                }
             }
         }
 
