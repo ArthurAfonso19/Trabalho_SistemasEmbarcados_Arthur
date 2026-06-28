@@ -1,16 +1,19 @@
 use defmt::info;
-use embassy_stm32::{mode, usart::Uart};
+use embassy_stm32::usart::Uart;
 use heapless::{String, Vec};
 
 //use crate::app::shell::RxState::Receiving;
 
 
-use crate::app::shell;
+use crate::app::monitor::TaskMetrics;
+use crate::MONITOR;
+use embassy_time::Instant;
+use core::fmt::Write;
 
 pub const RX_BUF_SIZE: usize = 64;
 pub const MAX_ARGS: usize = 8;
 
-pub const  RESPONSE_SIZE: usize = 256; 
+pub const  RESPONSE_SIZE: usize = 512; 
 // Reposta textual gerada pela shell
 //Neste passo ainda não escrevemos direto na UART
 pub type  ShellResponse = String<RESPONSE_SIZE>;
@@ -30,7 +33,6 @@ pub enum RxState
 pub enum ShellError
 {
     BufferFull,
-    Utf8Error,
     TooManyArgs,
 }
 
@@ -51,13 +53,38 @@ pub struct CommandEntry
 
 //Tabela minima de comandos da shell nesta fase
 pub const  COMMANDS: &[CommandEntry] = &[
-    CommandEntry{
+    CommandEntry
+    {
         name: "help",
         help: "Lista os comandos disponíveis",
     },
-    CommandEntry{
+
+    CommandEntry
+    {
         name: "status",
         help: "Exibe um breve estado do sistema",
+    },
+
+    CommandEntry
+    {
+        name: "tasks",
+        help: "Lista de tarefas com métricas",
+    },
+
+    CommandEntry
+    {
+        name: "uptime",
+        help: "Mostra o tempo desde o boot",
+    },
+
+    CommandEntry{
+        name: "mem",
+        help: "Mostra o tamanho das seções de memória",
+    },
+
+    CommandEntry{
+        name: "clean",
+        help: "Limpa o terminal",
     },
 ];
 
@@ -81,11 +108,6 @@ impl ShellBuffer
             len: 0,
             state: RxState::Receiving,
         }
-    }
-
-    pub fn state(&self) -> RxState
-    {
-        self.state
     }
 
     pub fn clear(&mut self)
@@ -231,30 +253,127 @@ pub fn parse_command<'a>(line: &'a str) -> Result<Option<ParsedCommand<'a>>, She
     Ok(Some(ParsedCommand { command, args }))
 }
 
+fn write_task_metrics_line(out: &mut ShellResponse, metrics: TaskMetrics)
+{
+    let _ = out.push_str("- ");
+    let _ = out.push_str(metrics.name);
+    let _ = out.push_str(": count=");
+    let _ = write!(out, "{}", metrics.execution_count);
+    let _ = out.push_str(", last_ms=");
+    let _ = write!(out, "{:?}", metrics.last_run_ms);
+    let _ = out.push_str(", min_ms=");
+    let _ = write!(out, "{:?}", metrics.min_interval_ms);
+    let _ = out.push_str(", max_ms=");
+    let _ = write!(out, "{:?}\r\n", metrics.max_interval_ms);
+}
+
 //Executa um comando ja parseado e devolve a resposta textual 
-pub fn execute_command(cmd: &ParsedCommand) -> ShellResponse
+pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
 {
     let mut out = ShellResponse::new();
 
     match cmd.command{
         "help" => {
-            let _ = out.push_str("Comandos disponíveis: \r\n");
+            if !cmd.args.is_empty() {
+                let _ = out.push_str("Erro: este comando nao aceita argumentos.\r\n");
+            } else {
+                let _ = out.push_str("Comandos disponíveis: \r\n");
 
-            for entry in COMMANDS {
-                let _ = out.push_str(" - ");
-                let _ = out.push_str(entry.name);
-                let _ = out.push_str(": ");
-                let _ = out.push_str(entry.help);
-                let _ = out.push_str("\r\n");
+                for entry in COMMANDS {
+                    let _ = out.push_str(" - ");
+                    let _ = out.push_str(entry.name);
+                    let _ = out.push_str(": ");
+                    let _ = out.push_str(entry.help);
+                    let _ = out.push_str("\r\n");
+                }
             }
         }
 
         "status" => {
-            //Nesta fase, o status ainda é simples e fixo 
-            //Mais para frente pode mostrar uptimes, tarefas e memória 
-            let _ = out.push_str("Sistema ativo\r\n");
-            let _ = out.push_str("UART: ok\r\n");
-            let _ = out.push_str("Shell: inicial\r\n");
+            if !cmd.args.is_empty() {
+                let _ = out.push_str("Erro: este comando nao aceita argumentos.\r\n");
+            } else {
+                //Nesta fase, o status ainda é simples e fixo 
+                //Mais para frente pode mostrar uptimes, tarefas e memória 
+                let _ = out.push_str("Sistema ativo\r\n");
+                let _ = out.push_str("UART: ok\r\n");
+                let _ = out.push_str("Shell: inicial\r\n");
+            }
+        }
+
+        "tasks" => {
+            if !cmd.args.is_empty() {
+                let _ = out.push_str("Erro: este comando nao aceita argumentos.\r\n");
+            } else {
+                //Copia as metricas e libera o lock antes de formatar a resposta.
+                let (adc, button, led) = {
+                    let monitor = MONITOR.lock().await;
+                    (monitor.adc, monitor.button, monitor.led)
+                };
+
+                //Cabeçalho simples do comando 
+                let _ = out.push_str("Tasks monitoradas: \r\n");
+
+                write_task_metrics_line(&mut out, adc);
+                write_task_metrics_line(&mut out, button);
+                write_task_metrics_line(&mut out, led);
+            }
+        }
+
+        "uptime" => {
+            if !cmd.args.is_empty() {
+                let _ = out.push_str("Erro: este comando nao aceita argumentos.\r\n");
+            } else {
+                //Lê o tempo atual desde o boot 
+                let uptime_ms = Instant::now().as_millis();
+
+                //monta uma resposta textual curta e direta 
+                let _ = out.push_str("Uptime: ");
+                let _ = write!(out, "{}", uptime_ms);
+                let _ = out.push_str(" ms\r\n");
+            }
+        }
+
+        "mem" => {
+            if !cmd.args.is_empty() 
+            {
+            // Mantem o comportamento consistente com help, status, tasks e uptime.
+            let _ = out.push_str("Erro: este comando nao aceita argumentos.\r\n");
+            } 
+            else 
+            {
+                // Le os tamanhos calculados a partir dos simbolos do linker.
+                let (text_size, data_size, bss_size) = crate::firmware_memory_sizes();
+
+                // Cabecalho simples da resposta.
+                let _ = out.push_str("Memoria do firmware:\r\n");
+
+                // Mostra o tamanho da secao de codigo.
+                let _ = out.push_str("- .text: ");
+                let _ = write!(out, "{}", text_size);
+                let _ = out.push_str(" bytes\r\n");
+
+                // Mostra o tamanho da secao de dados inicializados.
+                let _ = out.push_str("- .data: ");
+                let _ = write!(out, "{}", data_size);
+                let _ = out.push_str(" bytes\r\n");
+
+                // Mostra o tamanho da secao de dados zerados.
+                let _ = out.push_str("- .bss: ");
+                let _ = write!(out, "{}", bss_size);
+                let _ = out.push_str(" bytes\r\n");
+            }
+        }
+
+        "clean" => {
+            if !cmd.args.is_empty() 
+            {
+                let _ = out.push_str("Erro: este comando nao aceita argumentos. \r\n");
+            }
+            else 
+            {
+                let _ = out.push_str("\x1B[2J\x1B[H");   
+            }
         }
 
         _ => {
@@ -361,7 +480,7 @@ pub async fn shell_taks(mut uart: Uart<'static, embassy_stm32::mode::Async>)
             Ok(Some(line)) => match parse_command(line.as_str())
             {
                 Ok(Some(cmd)) => {
-                    let response = execute_command(&cmd);
+                    let response = execute_command(&cmd).await;
                     let _ = uart.write(response.as_bytes()).await;
                 }
 

@@ -66,3 +66,34 @@ impl TaskMetrics
         self.last_run_ms = Some(now_ms);
     }
 }
+
+pub struct SystemMonitor
+{
+    //Métricas da task ADC
+    pub adc: TaskMetrics,
+
+    //Métricas da taks do botão 
+    pub button: TaskMetrics,
+
+    // Métricas da task de led
+    pub led: TaskMetrics,
+
+}
+
+impl SystemMonitor
+{
+    pub const fn new() -> Self
+    {
+        Self
+        {
+            //Inicializa a entrada do ADC com nome fixo 
+            adc: TaskMetrics::new("adc"),
+
+            //Inicializa a entrada do botão com nome fixo 
+            button: TaskMetrics::new("button"),
+
+            //Inicializa a entrada do LED com nome fixo 
+            led: TaskMetrics::new("led"),
+        }
+    }
+}

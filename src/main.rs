@@ -3,6 +3,7 @@
 #![no_main]
 mod app;
 use crate::app::shell::shell_taks;
+use crate::app::monitor::SystemMonitor;
 //use cortex_m::Peripherals;
 use core::arch::asm;
 use cortex_m_rt::pre_init;
@@ -11,15 +12,17 @@ use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel, AnyAdcChannel, SampleTime};
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Level, Output, OutputType, Pull, Speed};
-use embassy_stm32::hrtim::stm32_hrtim::pac::lpuart1;
 use embassy_stm32::i2c::{self, I2c};
 use adxl345_async::{Address, Adxl345Async, DataRate, I2cBus, Range};
-use embassy_stm32::peripherals::{self, ADC2, PA5};
+use embassy_stm32::peripherals::{self, ADC2};
 use embassy_stm32::time::{khz, Hertz};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::usart::{self, Uart};
 use embassy_stm32::{Config, Peri, bind_interrupts, interrupt};
-use embassy_time::Timer;
+//use embassy_time::Timer;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
+use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 //use embassy_stm32::timer::pwm_input::PwmInput;
@@ -35,6 +38,27 @@ type AccelDevice = Adxl345Async<I2cBus<AsyncI2c>>;
 
 const ADDRESS: u8 = 0x53;
 const WHOAMI: u8 = 0;
+
+//Essas declarações apenas dizem ao compilador Rust que esses símbolos existem no
+//  binário final e serão resolvidos pelo linker
+unsafe extern "C"
+{
+    //Inicio e fim da seção .text no binário
+    static __stext: u8;
+    static __etext: u8;
+
+    //Inicio e fim da seção .data em RAM
+    static __sdata: u8;
+    static __edata: u8;
+
+    //Inicio e fim da seção .bss em RAM
+    static __sbss: u8;
+    static __ebss: u8;
+}
+
+// Permite que outros módulos do projeto leaim o monitor compartilhado 
+pub(crate) static MONITOR: Mutex<CriticalSectionRawMutex, SystemMonitor> =
+    Mutex::new(SystemMonitor::new());
 
 //bind_interrupts!(struct Irqs {
 //    TIM2 => timer::CaptureCompareInterruptHandler<peripherals::TIM2>;
@@ -104,6 +128,20 @@ unsafe fn TIM3(){
     info!("interrupt happens: tim20");
 }
      */
+
+fn section_size(start: *const u8, end: *const u8) -> usize 
+{
+    //Calcula o tamanho Bruto da seção em bytes 
+    (end as usize).saturating_sub(start as usize)
+}
+
+pub(crate) fn firmware_memory_sizes() -> (usize, usize, usize) {
+    let text_size = section_size(core::ptr::addr_of!(__stext), core::ptr::addr_of!(__etext));
+    let data_size = section_size(core::ptr::addr_of!(__sdata), core::ptr::addr_of!(__edata));
+    let bss_size = section_size(core::ptr::addr_of!(__sbss), core::ptr::addr_of!(__ebss));
+
+    (text_size, data_size, bss_size)
+}
 
 //Retorna a configuração de clocks do STM32G474
 // HSE externo de 24 MHz, PLL configurado para 170 MHz no sistema.
@@ -310,6 +348,9 @@ async fn adc_task(mut adc: Adc<'static, ADC2>, mut adc_pin: AnyAdcChannel<'stati
         // Mantem a aquisicao ativa sem poluir o RTT durante o uso da shell.
         let _measured = adc.blocking_read(&mut adc_pin, SampleTime::CYCLES247_5);
 
+        //Registra que a task ADC executou neste ciclo 
+        mark_adc_execution().await;
+
         // Evita travar a CPU em busy-waiting infinito na task
         embassy_time::Timer::after_millis(500).await;
     }
@@ -322,7 +363,11 @@ async fn button_task(mut button: ExtiInput<'static, embassy_stm32::mode::Async>)
 
     loop {
         button.wait_for_rising_edge().await;
+
+        //Conta um novo evento de press no monitoramento
+        mark_button_execution().await;
         info!("Pressed!");
+
         button.wait_for_falling_edge().await;
         info!("Released!");
     }
@@ -384,11 +429,52 @@ async  fn run_led_loop(pa5: Peri<'static, peripherals::PA5>) -> ! {
     loop 
     {
         led.set_high();
+
+        //Registra a execução associada a esse ciclo 
+        mark_led_execution().await;
+
         Timer::after_millis(500).await;
 
         led.set_low();
         Timer::after_millis(500).await;    
     }
+}
+
+
+async fn mark_adc_execution()
+{
+    //Captura o instante atual em milissegundos 
+    let now_ms = Instant::now().as_millis() as u64;
+
+    //Abre o monitor compartilhado por um período curto
+    let mut monitor = MONITOR.lock().await;
+
+    //Atualiza somente a métrica da task ADC
+    monitor.adc.mark_execution(now_ms); 
+}
+
+async fn mark_button_execution()
+{
+    //Captura o instante atual em milissegundos 
+    let now_ms = Instant::now().as_millis() as u64;
+
+    //Abre o monitor compartilhado por um período curto
+    let mut monitor = MONITOR.lock().await;
+
+    //Atualiza somente a métrica da task do botão
+    monitor.button.mark_execution(now_ms); 
+}
+
+async fn mark_led_execution()
+{
+        //Captura o instante atual em milissegundos 
+    let now_ms = Instant::now().as_millis() as u64;
+
+    //Abre o monitor compartilhado por um período curto
+    let mut monitor = MONITOR.lock().await;
+
+    //Atualiza somente a métrica da task ADC
+    monitor.led.mark_execution(now_ms); 
 }
 
 #[embassy_executor::main]
