@@ -6,7 +6,7 @@ mod drivers;
 use crate::app::led_task::{led_task, LedControl};
 use crate::app::shell::shell_taks;
 use crate::app::monitor::SystemMonitor;
-use crate::drivers::am2302::Am2302;
+use crate::drivers::am2302_capture::Am2302Capture;
 
 //use cortex_m::Peripherals;
 use core::arch::asm;
@@ -22,13 +22,11 @@ use embassy_stm32::peripherals::{self, ADC2};
 use embassy_stm32::time::{khz, Hertz};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::usart::{self, Uart};
-use embassy_stm32::gpio::Flex;
 use embassy_stm32::{Config, Peri, bind_interrupts, interrupt};
 //use embassy_time::Timer;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Instant, Timer};
-use futures::future::Select;
 use {defmt_rtt as _, panic_probe as _};
 
 //use embassy_stm32::timer::pwm_input::PwmInput;
@@ -82,7 +80,12 @@ bind_interrupts!(struct Irqs {
     I2C1_ER => embassy_stm32::i2c::ErrorInterruptHandler<peripherals::I2C1>;
     DMA1_CHANNEL3 => embassy_stm32::dma::InterruptHandler<peripherals::DMA1_CH3>;
     DMA1_CHANNEL4 => embassy_stm32::dma::InterruptHandler<peripherals::DMA1_CH4>;
+
+    //Canal DMA usado pelo TIM4_CH1 na implementação validada
+    DMA1_CHANNEL5 => embassy_stm32::dma::InterruptHandler<peripherals::DMA1_CH5>;
     EXTI15_10 => exti::InterruptHandler<interrupt::typelevel::EXTI15_10>;
+    // IRQ de capture/compare do TIM4.
+    TIM4 => embassy_stm32::timer::CaptureCompareInterruptHandler<peripherals::TIM4>;
 });
 
 //#[link_section = ".ram2bss"]
@@ -137,38 +140,6 @@ unsafe fn TIM3(){
     info!("interrupt happens: tim20");
 }
      */
-
-struct Am2302Delay;
-
-impl Am2302Delay
-{
-    fn new() -> Self
-    {
-        Self
-    }
-}
-
-impl embedded_hal::delay::DelayNs for Am2302Delay 
-{
-    fn delay_ns(&mut self, ns: u32) 
-    {
-        let cycles = (170_000_000u64 * ns as u64) / 1_000_000_000u64;
-        cortex_m::asm::delay(cycles as u32);
-    }
-
-    fn delay_us(&mut self, us: u32) 
-    {
-        let cycles = 170 * us;
-        cortex_m::asm::delay(cycles);
-    }
-
-    fn delay_ms(&mut self, ms: u32) 
-    {
-        for _ in 0..ms {
-            self.delay_us(1000);
-        }
-    }
-}
 
 fn section_size(start: *const u8, end: *const u8) -> usize 
 {
@@ -465,24 +436,26 @@ async fn accel_task(mut accel: AccelDevice) {
 }
 
 #[embassy_executor::task]
-async fn am2302_task(mut sensor: Am2302<Flex<'static>, Am2302Delay>) {
+async fn am2302_task(mut sensor: Am2302Capture<'static, peripherals::TIM4, peripherals::PB6, peripherals::DMA1_CH5>,)
+{
     loop {
-        match sensor.read() {
+        // Leitura assincrona do sensor usando timer + DMA.
+        match sensor.read(Irqs).await {
             Ok((temperature_c, humidity_rh)) => {
-                // Loga as medicoes no RTT para validar o driver antes da shell.
+                // Loga as medicoes no RTT.
                 info!("AM2302: temp={} C, humidity={} %RH", temperature_c, humidity_rh);
             }
 
             Err(error) => {
-                // Loga o erro para diagnosticar timeout, checksum ou protocolo.
+                // Mantem os erros visiveis para diagnostico.
                 error!("AM2302 error: {:?}", error);
             }
         }
 
-        // Respeita o intervalo minimo do datasheet entre leituras.
+        // Respeita o intervalo minimo entre leituras do AM2302.
         Timer::after_secs(2).await;
     }
-}
+} 
 
 async fn mark_adc_execution()
 {
@@ -533,9 +506,8 @@ async fn main(spawner: Spawner)
     core.DCB.enable_trace();
     core.DWT.enable_cycle_counter();
 
-    let am2302_line = Flex::new(p.PB6);
-    let am2302_delay = Am2302Delay;
-    let am2302 = Am2302::new(am2302_line, am2302_delay);
+// Cria o driver com o trio validado em hardware: pino, timer e DMA.
+    let am2302 = Am2302Capture::new(p.PB6, p.TIM4, p.DMA1_CH5);
 
     // === 2. Logs de startup ===
     //Exibe o Hello World e verifica as seções especiais de memória 

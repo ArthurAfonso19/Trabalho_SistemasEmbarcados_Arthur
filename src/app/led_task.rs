@@ -23,11 +23,6 @@ impl  LedControl
         }
     }
 
-    pub fn toggle(&mut self)
-    {
-        self.enabled = !self.enabled;
-    }
-
     //Liga ou desliga o LED 
     pub fn set_enabled(&mut self, enabled:bool)
     {
