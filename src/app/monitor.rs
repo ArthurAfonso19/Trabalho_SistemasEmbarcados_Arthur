@@ -1,4 +1,6 @@
 use crate::drivers::am2302_capture::Am2302CaptureError;
+use crate::drivers::Hc_Sr_04::HcSr04Error;
+use crate::drivers::hcsr04::PulseMeasureError;
 //Debug permite inspecionar a struct em logs de depuração 
 // Clone + Copy permitem copiar a struct por valor sem complexidade extra 
 #[derive(Debug, Clone, Copy)]
@@ -82,6 +84,9 @@ pub struct SystemMonitor
     //Snapshot mais recente do AM2302
     pub am2302: Am2302Snapshot,
 
+    //Snapshot mais recente do HC-SR04
+    pub hcsr04: HcSr04Snapshot,
+
 }
 
 impl SystemMonitor
@@ -101,6 +106,8 @@ impl SystemMonitor
 
             //Estado inicial do AM2302 antes da primeira leitura 
             am2302: Am2302Snapshot::new(),
+
+            hcsr04: HcSr04Snapshot::new(),
         }
     }
 }
@@ -140,6 +147,40 @@ impl Am2302Snapshot
 
     //Registra o snapshot quando uma leitura termina com sucesso 
     pub fn update_error(&mut self, error: Am2302CaptureError)
+    {
+        self.last_error = Some(error);
+    }
+}
+
+pub struct HcSr04Snapshot
+{
+    pub distance_cm: Option<f32>,
+    pub last_update_ms: Option<u64>,
+    pub last_error: Option<HcSr04Error<PulseMeasureError>>,
+}
+
+impl  HcSr04Snapshot 
+{
+    //Estado inicial
+    pub const  fn new() -> Self
+    {
+        Self
+        {
+            distance_cm: None,
+            last_update_ms: None,
+            last_error: None,
+        }
+    } 
+
+    //Atualiza o snapshot quando uma medição termina com sucesso 
+    pub fn update_success(&mut self, distance_cm: f32, now_ms: u64)
+    {
+        self.distance_cm = Some(distance_cm);
+        self.last_update_ms = Some(now_ms);
+        self.last_error = None;
+    }   
+
+    pub fn update_error(&mut self, error: HcSr04Error<PulseMeasureError>)
     {
         self.last_error = Some(error);
     }

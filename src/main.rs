@@ -6,10 +6,13 @@ mod drivers;
 use crate::app::led_task::{led_task, LedControl};
 use crate::app::shell::shell_taks;
 use crate::app::monitor::{self, SystemMonitor};
+use crate::drivers::Hc_Sr_04::HcSr04;
 use crate::drivers::am2302_capture::Am2302Capture;
+use crate::drivers::hcsr04::TimPulseInput;
 
 //use cortex_m::Peripherals;
 use core::arch::asm;
+use core::error;
 use cortex_m_rt::pre_init;
 use defmt::*;
 use embassy_executor::Spawner;
@@ -84,7 +87,10 @@ bind_interrupts!(struct Irqs {
     //Canal DMA usado pelo TIM4_CH1 na implementação validada
     DMA1_CHANNEL5 => embassy_stm32::dma::InterruptHandler<peripherals::DMA1_CH5>;
     EXTI15_10 => exti::InterruptHandler<interrupt::typelevel::EXTI15_10>;
-    // IRQ de capture/compare do TIM4.
+
+    //IRQ de capture/compare do TIM3 usada pélo HC-SR04
+    TIM3 => embassy_stm32::timer::CaptureCompareInterruptHandler<peripherals::TIM3>;
+    // IRQ de capture/compare do TIM4 usada pelo AM2302
     TIM4 => embassy_stm32::timer::CaptureCompareInterruptHandler<peripherals::TIM4>;
 });
 
@@ -471,6 +477,45 @@ async fn am2302_task(mut sensor: Am2302Capture<'static, peripherals::TIM4, perip
     }
 }
 
+#[embassy_executor::task]
+async fn hcsr04_task(
+    mut sensor: HcSr04<
+        Output<'static>,
+        TimPulseInput<'static, peripherals::TIM3, peripherals::PC7>,
+    >,
+) {
+    loop {
+        match sensor.measure_distance_cm_with_irq(Irqs).await {
+            Ok(distance_cm) => {
+                // Captura o instante em que a medicao terminou com sucesso.
+                let now_ms = Instant::now().as_millis() as u64;
+
+                // Atualiza o snapshot compartilhado do HC-SR04.
+                {
+                    let mut monitor = MONITOR.lock().await;
+                    monitor.hcsr04.update_success(distance_cm, now_ms);
+                }
+
+                // Mantem o log RTT para observacao em bancada.
+                info!("HC-SR04: {} cm", distance_cm);
+            }
+
+            Err(error) => {
+                // Registra o erro mais recente sem apagar a ultima leitura valida.
+                {
+                    let mut monitor = MONITOR.lock().await;
+                    monitor.hcsr04.update_error(error);
+                }
+
+                warn!("HC-SR04 error: {:?}", error);
+            }
+        }
+
+        // Evita congestionamento acustico e da CPU.
+        Timer::after_millis(500).await;
+    }
+}
+
 async fn mark_adc_execution()
 {
     //Captura o instante atual em milissegundos 
@@ -520,8 +565,15 @@ async fn main(spawner: Spawner)
     core.DCB.enable_trace();
     core.DWT.enable_cycle_counter();
 
-// Cria o driver com o trio validado em hardware: pino, timer e DMA.
+    // Cria o driver com o trio validado em hardware: pino, timer e DMA.
     let am2302 = Am2302Capture::new(p.PB6, p.TIM4, p.DMA1_CH5);
+
+    // TRIG como GPIO de saida em nivel baixo inicial.
+    let trig = Output::new(p.PA6, Level::Low, Speed::Low);
+    // ECHO medido pelo caminho concreto definido na bancada.
+    let echo = TimPulseInput::new(p.PC7, p.TIM3);
+    // Driver do sensor completo.
+    let hcsr04 = HcSr04::new(trig, echo);
 
     // === 2. Logs de startup ===
     //Exibe o Hello World e verifica as seções especiais de memória 
@@ -564,6 +616,7 @@ async fn main(spawner: Spawner)
     spawner.spawn(unwrap!(accel_task(accel)));
     spawner.spawn(unwrap!(led_task(p.PA5)));
     spawner.spawn(unwrap!(am2302_task(am2302)));
+    spawner.spawn(unwrap!(hcsr04_task(hcsr04)));
 
     // === 6. Loop Principal ===
     // Mantem a main viva enquanto as tasks rodam em paralelo.

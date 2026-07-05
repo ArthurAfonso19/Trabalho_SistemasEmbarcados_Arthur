@@ -879,11 +879,13 @@ Quando uma fase for grande, quebrar em subetapas pequenas e repetir esse mesmo c
    - validar qual timer e canal estao livres no firmware atual
 3. Definir a abstracao primaria para medicao de pulso:
    ```rust
-   pub trait PulseInput {
-       type Error;
-       async fn measure_high_pulse(&mut self, timeout: Duration) -> Result<Duration, Self::Error>;
-   }
-   ```
+    pub trait PulseInput {
+        type Error;
+        async fn measure_high_pulse(&mut self, timeout: Duration) -> Result<Duration, Self::Error>;
+    }
+    ```
+   - seguir a mesma filosofia do `AM2302`: implementacao generica sobre timer e pino
+   - primeira versao validada em bancada pode fixar o canal em `TIM3_CH2`
 4. Implementar `PulseInput` para STM32G4 com **timer input capture como caminho principal**:
    - configurar o timer em base temporal simples, por exemplo `1 MHz`
    - capturar pelo menos a borda de subida e a borda de descida do `ECHO`
