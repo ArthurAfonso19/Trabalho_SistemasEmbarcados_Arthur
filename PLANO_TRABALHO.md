@@ -251,11 +251,14 @@ HAL CONCRETO (embassy-stm32, cortex-m)
 
 ### 5.3. Trait `PulseInput`
 
-Para o HC-SR04, precisamos medir a duracao de um pulso no pino `ECHO`. Como o STM32G4 tem TIM com input capture, podemos:
+Para o HC-SR04, precisamos medir a duracao de um pulso no pino `ECHO`. A experiencia com o `AM2302` mostrou que, quando o protocolo depende de janelas curtas e previsibilidade temporal, a melhor arquitetura e tirar a CPU do caminho critico e delegar a medicao ao hardware.
 
-- Opcao A: usar `InputPin` + loop de polling com `RMW` (nao recomendado)
-- Opcao B: usar EXTI + timestamp do `embassy-time`
-- Opcao C: usar timer em modo input capture
+Para o STM32G4, isso leva a esta ordem de preferencia:
+
+- Opcao A: usar timer em modo input capture
+- Opcao B: usar timer em input capture com apoio de DMA, se a janela de captura justificar
+- Opcao C: usar EXTI + timestamp do `embassy-time` apenas como prototipo ou fallback
+- Opcao D: usar `InputPin` + loop de polling com `RMW` (nao recomendado)
 
 Trait sugerida:
 
@@ -267,6 +270,12 @@ trait PulseInput {
 ```
 
 Adapter concreto: usar um timer qualquer (ex: TIM2 ou TIM3) em modo de captura.
+
+Para o HC-SR04, como normalmente ha um unico pulso `HIGH` por medicao, pode nao ser necessario um buffer DMA grande como no `AM2302`. Ainda assim, a linha de arquitetura deve continuar a mesma:
+
+- `GPIO` para o trigger
+- timer para capturar as bordas do `ECHO`
+- CPU apenas para converter a largura do pulso em distancia
 
 Isso precisa ser validado com o `rm0440.pdf` para ver qual timer esta livre.
 
@@ -567,17 +576,22 @@ pub trait PulseInput {
 
 Implementacao concreta para STM32G4:
 
-- **Opcao 1**: usar um timer em input capture
-  - vantagem: precisa e sem ocupar CPU
-  - desvantagem: consome um timer
+- **Opcao principal**: usar um timer em input capture
+  - vantagem: medicao por hardware, menor jitter e melhor convivencia com outras tasks
+  - vantagem: preserva a escalabilidade da arquitetura para varios sensores sensiveis a tempo
+  - desvantagem: consome um timer e precisa de mapeamento correto de canal/pino
   - precisamos verificar no RM0440 qual timer esta livre (TIM2, TIM3, TIM15, TIM16, etc.)
 
-- **Opcao 2**: usar EXTI + `embassy_time::Instant`
-  - vantagem: nao consome timer
-  - desvantagem: precisao limitada, mas suficiente para HC-SR04
-  - resolução do `embassy-time` no G4 com `tick-hz-32_768` e aproximadamente 30 us
+- **Opcao secundaria**: usar timer em input capture com DMA
+  - vantagem: util se quisermos capturar mais de uma borda sem rearme manual ou montar uma interface primaria mais geral
+  - desvantagem: aumenta a complexidade e o consumo de recursos
 
-Considerando que a faixa util do HC-SR04 e de 150 us a 25 ms, a opcao 2 e viavel.
+- **Opcao de prototipo apenas**: usar EXTI + `embassy_time::Instant`
+  - vantagem: implementacao inicial mais simples
+  - desvantagem: depende mais da CPU e da resolucao temporal do sistema
+  - desvantagem: pior previsibilidade em ambiente concorrente
+
+Depois do aprendizado com o `AM2302`, a recomendacao do plano deixa de ser `EXTI + Instant` e passa a ser **timer input capture como estrategia padrao** para qualquer sensor com timing relevante.
 
 #### Resultado
 
@@ -837,55 +851,74 @@ Quando uma fase for grande, quebrar em subetapas pequenas e repetir esse mesmo c
 
 ### Fase 6 - Driver HC-SR04
 
-**Objetivo**: implementar driver generico para o sensor ultrassonico.
+**Objetivo**: implementar o driver do sensor ultrassonico de forma coerente com as licoes aprendidas no `AM2302`, priorizando escalabilidade, sincronismo e isolamento das tarefas de tempo real.
+
+**Principio arquitetural da fase**:
+
+- o `HC-SR04` nao deve nascer como um driver baseado em polling fino nem em medicao dominada pela CPU
+- o caminho critico de tempo deve ficar preferencialmente no hardware do microcontrolador
+- a shell nao deve disparar medicoes diretamente; deve ler apenas um snapshot compartilhado
+- a integracao precisa preservar a convivencia com as demais tasks do sistema
 
 **Ciclo de validacao da fase**:
 
-1. Validar primeiro a estrategia de medicao do pulso
-2. Testar trigger + echo sem shell
-3. Confirmar compatibilidade eletrica do `ECHO`
-4. So depois integrar ao comando `sensors`
+1. Confirmar primeiro a compatibilidade eletrica do `ECHO`
+2. Validar o mapeamento de pino, canal de timer e recurso de captura
+3. Testar trigger + captura do `ECHO` sem shell e sem outras abstracoes extras
+4. So depois integrar a tarefa periodica e o estado compartilhado
+5. Por ultimo, expor a distancia no comando `sensors`
 
 **Passos**:
-1. Definir trait `PulseInput`:
+1. Confirmar a parte eletrica:
+   - escolher um pino seguro para `ECHO`
+   - verificar se e `5V-tolerant`
+   - se nao for, prever divisor resistivo ou level shifter
+2. Escolher os recursos de hardware:
+   - pino `TRIG` como GPIO output comum
+   - pino `ECHO` ligado a um canal de timer com input capture
+   - validar qual timer e canal estao livres no firmware atual
+3. Definir a abstracao primaria para medicao de pulso:
    ```rust
    pub trait PulseInput {
        type Error;
        async fn measure_high_pulse(&mut self, timeout: Duration) -> Result<Duration, Self::Error>;
    }
    ```
-2. Implementar `measure_high_pulse` para STM32G4:
-   - com EXTI + `embassy_time::Instant` (opcao simples)
-   - ou com timer input capture (opcao precisa)
-3. Em `src/drivers/hcsr04.rs`:
+4. Implementar `PulseInput` para STM32G4 com **timer input capture como caminho principal**:
+   - configurar o timer em base temporal simples, por exemplo `1 MHz`
+   - capturar pelo menos a borda de subida e a borda de descida do `ECHO`
+   - calcular a largura do pulso a partir da diferenca entre timestamps
+   - usar `DMA` apenas se isso simplificar a captura ou aumentar a robustez da interface primaria
+5. Em `src/drivers/hcsr04.rs`, implementar o driver secundario:
    - `HcSr04Error` enum
    - `HcSr04<TRIG: OutputPin, ECHO: PulseInput>` struct
    - `new(trig, echo)`
    - `measure_distance_cm() -> Result<f32, HcSr04Error>`
-4. Implementar:
-   - trigger: pino alto por 10 us
-   - medir pulso de echo
+6. Implementar a logica de medicao:
+   - gerar trigger: pino alto por `10 us`
+   - medir o pulso `HIGH` do `ECHO`
    - converter tempo para distancia
-5. Integrar:
-   - escolher pinos TRIG e ECHO
-   - atentar para nivel de tensao do ECHO
-   - instanciar driver
-   - spawnar tarefa periodica
-6. Comando `sensors` inclui distancia do HC-SR04
+   - tratar timeout e ausencia de eco
+7. Integrar ao firmware com a mesma filosofia usada no `AM2302`:
+   - criar uma task periodica propria do `HC-SR04`
+   - atualizar um snapshot compartilhado com ultima distancia valida e ultimo erro
+   - manter a shell apenas como leitora desse estado
+8. So depois integrar a exibicao no comando `sensors`
 
 **Observacoes tecnicas**:
-- timeout padrao: 30-40 ms (distancia maxima)
-- `measure_high_pulse` com EXTI:
-  - registrar borda de subida e descida
-  - calcular diferenca de tempo
-  - se exceder timeout, retornar erro
-- tratar eco sem resposta (obstaculo muito proximo ou muito distante)
+- timeout padrao: `30-40 ms` para cobrir distancia maxima e falha sem eco
+- evitar `polling` em loop apertado no pino `ECHO`
+- evitar tratar `EXTI + Instant` como solucao final de arquitetura; se for usado, deve ser apenas para experimento inicial ou prova rapida de conceito
+- preferir resolucao temporal simples e interpretavel, como timer em `1 MHz`, para que `1 tick = 1 us`
+- manter a medicao em task separada, com intervalo entre amostras, para nao congestionar o barramento acustico nem a CPU
+- a etapa de decodificacao/conversao deve acontecer depois da captura, fora da janela temporal critica
 
 **Entregaveis**:
-- `PulseInput` trait definida e implementada
+- `PulseInput` trait definida com implementacao baseada em timer input capture
 - `HcSr04` struct com trait generica
-- Tarefa de leitura periodica
-- Exibicao por `sensors`
+- tarefa periodica de medicao desacoplada da shell
+- snapshot compartilhado com ultima distancia e ultimo erro
+- exibicao por `sensors`
 
 ---
 

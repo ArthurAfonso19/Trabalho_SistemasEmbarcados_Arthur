@@ -6,9 +6,10 @@ use heapless::{String, Vec};
 //use crate::app::shell::RxState::Receiving;
 
 
-use crate::app::monitor::TaskMetrics;
+use crate::app::monitor::{self, TaskMetrics};
 use crate::{LED_CONTROL, MONITOR};
 use embassy_time::Instant;
+use core::error;
 use core::fmt::Write;
 
 pub const RX_BUF_SIZE: usize = 64;
@@ -86,6 +87,11 @@ pub const  COMMANDS: &[CommandEntry] = &[
     CommandEntry{
         name: "led",
         help: "Controla o LED: on, off, period <ms>",
+    },
+
+    CommandEntry{
+        name: "sensors",
+        help: "Mostra a ultima leitura dos sensores",
     },
 
     CommandEntry{
@@ -423,6 +429,60 @@ pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
                     //Qualquer outro formato cai em erro de uso
                     let _ = out.push_str("Uso: led on | led off | led period <ms>\r\n");
                 }
+            }
+        }
+
+        "sensors" => {
+            //Mantem o padrao dos outros comandos: nada de argumentos extras 
+            if !cmd.args.is_empty()
+            {
+                let _ = out.push_str("Erro: este comando não aceita argumentos.\r\n");
+            }
+            else 
+            {
+                //Copia snapshot e libera o lock antes de formatar a resposta 
+                let am2302 = {
+                    let monitor = MONITOR.lock().await;
+                    monitor.am2302
+                };
+
+                //Cabeçalho simples da resposta 
+                let _ = out.push_str("Sensores:\r\n"); 
+
+                match (am2302.temperature_c, am2302.humidity_rh, am2302.last_update_ms) 
+                {
+                    (Some(temperature_c), Some(humidity_rh), Some(last_update_ms)) => {
+                        //Mostra a ultima temperatura válida 
+                        let _ = out.push_str("AM2302 temp: ");
+                        let _ = write!(out, "{}", temperature_c);
+                        let _ = out.push_str(" C\r\n");
+                        
+                        //Mostra a ultima umidade válida 
+                        let _ = out.push_str("AM2302 humidity: ");
+                        let _ = write!(out, "{}", humidity_rh);
+                        let _ = out.push_str(" %RH\r\n");
+
+                        //Calcula a quanto tempo essa leitura foi atualizada 
+                        let now_ms = Instant::now().as_millis() as u64;
+                        let age_ms = now_ms.saturating_sub(last_update_ms);
+                        let _ = out.push_str("Atualizado ha: ");
+                        let _ = write!(out, "{}", age_ms);
+                        let _ = out.push_str(" ms\r\n");
+                    }    
+
+                    _ => {
+                        //Ainda não houve leitura válida suficiente para mostrar dados. 
+                        let _ = out.push_str("AM2302: sem leitura valida ainda\r\n");
+                    }
+                }
+
+                if let Some(error) = am2302.last_error
+                {
+                    //Mostra o último erro conhecido, se existir 
+                    let _ = out.push_str("Ultimo erro: ");
+                    let _ = write!(out, "{:?}", error);
+                    let _ = out.push_str("\r\n");
+                }    
             }
         }
 

@@ -5,7 +5,7 @@ mod app;
 mod drivers;
 use crate::app::led_task::{led_task, LedControl};
 use crate::app::shell::shell_taks;
-use crate::app::monitor::SystemMonitor;
+use crate::app::monitor::{self, SystemMonitor};
 use crate::drivers::am2302_capture::Am2302Capture;
 
 //use cortex_m::Peripherals;
@@ -442,12 +442,26 @@ async fn am2302_task(mut sensor: Am2302Capture<'static, peripherals::TIM4, perip
         // Leitura assincrona do sensor usando timer + DMA.
         match sensor.read(Irqs).await {
             Ok((temperature_c, humidity_rh)) => {
-                // Loga as medicoes no RTT.
+                //Captura o instante em que a leitura valida terminou 
+                let now_ms = Instant::now().as_millis() as u64;
+
+                //Atualiza o snapshot compartilhado do Am2302 
+                {
+                    let mut monitor = MONITOR.lock().await;
+                    monitor.am2302.update_success(temperature_c, humidity_rh, now_ms);
+                }
+
+                // Mantem o log RTT para observacao em bancada.
                 info!("AM2302: temp={} C, humidity={} %RH", temperature_c, humidity_rh);
             }
 
             Err(error) => {
-                // Mantem os erros visiveis para diagnostico.
+                //Registra o erro mais recente sem apagar a ultima leitura valida 
+                {
+                    let mut monitor = MONITOR.lock().await;
+                    monitor.am2302.update_error(error);
+                }
+
                 error!("AM2302 error: {:?}", error);
             }
         }
@@ -455,7 +469,7 @@ async fn am2302_task(mut sensor: Am2302Capture<'static, peripherals::TIM4, perip
         // Respeita o intervalo minimo entre leituras do AM2302.
         Timer::after_secs(2).await;
     }
-} 
+}
 
 async fn mark_adc_execution()
 {
