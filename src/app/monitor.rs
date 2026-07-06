@@ -152,6 +152,7 @@ impl Am2302Snapshot
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct HcSr04Snapshot
 {
     pub distance_cm: Option<f32>,

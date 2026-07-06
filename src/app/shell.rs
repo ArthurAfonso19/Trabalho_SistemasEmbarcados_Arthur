@@ -7,6 +7,7 @@ use heapless::{String, Vec};
 
 
 use crate::app::monitor::{self, TaskMetrics};
+use crate::drivers::hcsr04;
 use crate::{LED_CONTROL, MONITOR};
 use embassy_time::Instant;
 use core::error;
@@ -441,9 +442,9 @@ pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
             else 
             {
                 //Copia snapshot e libera o lock antes de formatar a resposta 
-                let am2302 = {
+                let (am2302, hcsr04) = {
                     let monitor = MONITOR.lock().await;
-                    monitor.am2302
+                    (monitor.am2302, monitor.hcsr04)
                 };
 
                 //Cabeçalho simples da resposta 
@@ -468,7 +469,7 @@ pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
                         let _ = out.push_str("Atualizado ha: ");
                         let _ = write!(out, "{}", age_ms);
                         let _ = out.push_str(" ms\r\n");
-                    }    
+                    } 
 
                     _ => {
                         //Ainda não houve leitura válida suficiente para mostrar dados. 
@@ -482,7 +483,29 @@ pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
                     let _ = out.push_str("Ultimo erro: ");
                     let _ = write!(out, "{:?}", error);
                     let _ = out.push_str("\r\n");
-                }    
+                }
+
+                // --- HC-SR04 ---
+                match (hcsr04.distance_cm, hcsr04.last_update_ms) {
+                    (Some(distance_cm), Some(last_update_ms)) => {
+                        let _ = out.push_str("HC-SR04 distance: ");
+                        let _ = write!(out, "{}", distance_cm);
+                        let _ = out.push_str(" cm\r\n");
+                        let now_ms = Instant::now().as_millis() as u64;
+                        let age_ms = now_ms.saturating_sub(last_update_ms);
+                        let _ = out.push_str("Atualizado ha: ");
+                        let _ = write!(out, "{}", age_ms);
+                        let _ = out.push_str(" ms\r\n");
+                    }
+                    _ => {
+                        let _ = out.push_str("HC-SR04: sem leitura valida ainda\r\n");
+                    }
+                }
+                if let Some(error) = hcsr04.last_error {
+                    let _ = out.push_str("Ultimo erro: ");
+                    let _ = write!(out, "{:?}", error);
+                    let _ = out.push_str("\r\n");
+                }
             }
         }
 
