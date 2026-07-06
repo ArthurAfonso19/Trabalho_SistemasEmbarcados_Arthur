@@ -446,15 +446,16 @@ async fn am2302_task(mut sensor: Am2302Capture<'static, peripherals::TIM4, perip
 {
     loop {
         // Leitura assincrona do sensor usando timer + DMA.
-        match sensor.read(Irqs).await {
-            Ok((temperature_c, humidity_rh)) => {
-                //Captura o instante em que a leitura valida terminou 
-                let now_ms = Instant::now().as_millis() as u64;
+        let result = sensor.read(Irqs).await;
+        let now_ms = Instant::now().as_millis() as u64;
 
+        match result {
+            Ok((temperature_c, humidity_rh)) => {
                 //Atualiza o snapshot compartilhado do Am2302 
                 {
                     let mut monitor = MONITOR.lock().await;
                     monitor.am2302.update_success(temperature_c, humidity_rh, now_ms);
+                    monitor.am2302_task.mark_execution(now_ms);
                 }
 
                 // Mantem o log RTT para observacao em bancada.
@@ -466,6 +467,7 @@ async fn am2302_task(mut sensor: Am2302Capture<'static, peripherals::TIM4, perip
                 {
                     let mut monitor = MONITOR.lock().await;
                     monitor.am2302.update_error(error);
+                    monitor.am2302_task.mark_execution(now_ms);
                 }
 
                 error!("AM2302 error: {:?}", error);
@@ -485,15 +487,16 @@ async fn hcsr04_task(
     >,
 ) {
     loop {
-        match sensor.measure_distance_cm_with_irq(Irqs).await {
-            Ok(distance_cm) => {
-                // Captura o instante em que a medicao terminou com sucesso.
-                let now_ms = Instant::now().as_millis() as u64;
+        let result = sensor.measure_distance_cm_with_irq(Irqs).await;
+        let now_ms = Instant::now().as_millis() as u64;
 
+        match result {
+            Ok(distance_cm) => {
                 // Atualiza o snapshot compartilhado do HC-SR04.
                 {
                     let mut monitor = MONITOR.lock().await;
                     monitor.hcsr04.update_success(distance_cm, now_ms);
+                    monitor.hcsr04_task.mark_execution(now_ms);
                 }
 
                 // Mantem o log RTT para observacao em bancada.
@@ -505,6 +508,7 @@ async fn hcsr04_task(
                 {
                     let mut monitor = MONITOR.lock().await;
                     monitor.hcsr04.update_error(error);
+                    monitor.hcsr04_task.mark_execution(now_ms);
                 }
 
                 warn!("HC-SR04 error: {:?}", error);
@@ -606,7 +610,21 @@ async fn main(spawner: Spawner)
         p.PC9
     ).await;
 
-    // === 5. Runtime concorrente ===
+    // === 5. Configura intervalos esperados para tasks periodicas ===
+    {
+        let mut monitor = MONITOR.lock().await;
+        //LED: periodo padrao de 1000 ms configurado em LedControl.
+        monitor.led.set_expected_interval(1000);
+        //ADC: lendo a cada 500 ms dentro da task.
+        monitor.adc.set_expected_interval(500);
+        //Botao: nao tem periodicidade fixa, fica como None.
+        //AM2302: intervalo de 2s entre leituras.
+        monitor.am2302_task.set_expected_interval(2000);
+        //HC-SR04: intervalo de 500ms entre leituras.
+        monitor.hcsr04_task.set_expected_interval(500);
+    }
+
+    // === 6. Runtime concorrente ===
     //Cada periférico 
     spawner.spawn(unwrap!(adc_task(adc, adc_channel)));
     spawner.spawn(unwrap!(button_task(button)));
@@ -618,7 +636,7 @@ async fn main(spawner: Spawner)
     spawner.spawn(unwrap!(am2302_task(am2302)));
     spawner.spawn(unwrap!(hcsr04_task(hcsr04)));
 
-    // === 6. Loop Principal ===
+    // === 7. Loop Principal ===
     // Mantem a main viva enquanto as tasks rodam em paralelo.
     loop {
         Timer::after_secs(1).await;

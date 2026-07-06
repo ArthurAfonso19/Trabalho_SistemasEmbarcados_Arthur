@@ -99,6 +99,11 @@ pub const  COMMANDS: &[CommandEntry] = &[
         name: "clean",
         help: "Limpa o terminal",
     },
+
+    CommandEntry{
+        name: "rt",
+        help: "Exibe métricas de tempo real: intervalo, jitter, execucoes",
+    }
 ];
 
 //Buffer circular simples para receber bytes da UART
@@ -506,6 +511,53 @@ pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
                     let _ = write!(out, "{:?}", error);
                     let _ = out.push_str("\r\n");
                 }
+            }
+        }
+
+        "rt" => {
+            if !cmd.args.is_empty() {
+                let _ = out.push_str("Erro: este comando nao aceita argumentos.\r\n");
+            } else {
+                // Copia as metricas e libera o lock antes de formatar.
+                let (adc, button, led, am2302_task, hcsr04_task) = {
+                    let monitor = MONITOR.lock().await;
+                    (monitor.adc, monitor.button, monitor.led, monitor.am2302_task, monitor.hcsr04_task)
+                };
+
+                let _ = out.push_str("Tempo real:\r\n");
+
+                // Funcao auxiliar local para formatar uma linha de task.
+                fn format_rt_line(
+                    out: &mut ShellResponse,
+                    metrics: monitor::TaskMetrics,
+                ) {
+                    let _ = out.push_str("- ");
+                    let _ = out.push_str(metrics.name);
+                    let _ = out.push_str(": last=");
+                    match metrics.last_interval_ms {
+                        Some(ms) => { let _ = write!(out, "{}", ms); }
+                        None => { let _ = out.push_str("N/A"); }
+                    }
+                    let _ = out.push_str("ms, expected=");
+                    match metrics.expected_interval_ms {
+                        Some(ms) => { let _ = write!(out, "{}", ms); }
+                        None => { let _ = out.push_str("N/A"); }
+                    }
+                    let _ = out.push_str("ms, jitter_avg=");
+                    match metrics.average_jitter_ms() {
+                        Some(ms) => { let _ = write!(out, "{}", ms); }
+                        None => { let _ = out.push_str("N/A"); }
+                    }
+                    let _ = out.push_str("ms, count=");
+                    let _ = write!(out, "{}", metrics.execution_count);
+                    let _ = out.push_str("\r\n");
+                }
+
+                format_rt_line(&mut out, adc);
+                format_rt_line(&mut out, button);
+                format_rt_line(&mut out, led);
+                format_rt_line(&mut out, am2302_task);
+                format_rt_line(&mut out, hcsr04_task);
             }
         }
 

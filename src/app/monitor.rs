@@ -4,7 +4,6 @@ use crate::drivers::hcsr04::PulseMeasureError;
 //Debug permite inspecionar a struct em logs de depuração 
 // Clone + Copy permitem copiar a struct por valor sem complexidade extra 
 #[derive(Debug, Clone, Copy)]
-
 pub struct TaskMetrics
 {
     //Nome fixo da task, por exemplo: "adc" ou "button"
@@ -23,12 +22,26 @@ pub struct TaskMetrics
     pub min_interval_ms : Option<u64>,
 
     //Maior intervalo observado entre duas execuções consecutivas 
-    pub max_interval_ms: Option<u64>
+    pub max_interval_ms: Option<u64>,
+
+    //Intevalo nominal esperado entre executores, em milissegundos 
+    pub expected_interval_ms: Option<u64>,
+
+    //Ultimo intervalo observado entre duas execuções consecutivas
+    pub last_interval_ms: Option<u64>,
+
+    //Soma acumulada dos valores absolutos de jitter 
+    pub jitter_accum: u64,
+
+    //Quantas amostras de jitter acumuladas até agora 
+    pub jitter_samples: u32,
+
 }
 
 impl TaskMetrics
 {
-    pub const fn new(name: &'static str) -> Self{
+    pub const fn new(name: &'static str) -> Self
+    {
         Self
         {
             name,
@@ -36,37 +49,67 @@ impl TaskMetrics
             last_run_ms: None,
             min_interval_ms: None,
             max_interval_ms: None,
+
+            expected_interval_ms: None,
+            last_interval_ms: None,
+            jitter_accum: 0,
+            jitter_samples: 0,
         }
+    }
+
+    pub fn set_expected_interval(&mut self, interval_ms: u64)
+    {
+        self.expected_interval_ms = Some(interval_ms);
     }
 
     pub fn mark_execution(&mut self, now_ms: u64)
     {
-        //Se já havia uma execução anterior, calcula o intervalo a partir dela 
-        if let  Some(previous_run_ms) = self.last_run_ms{
-            //saturating_sub: evita underflow caso now_ms seja menor que previous_run_ms
+        if let Some(previous_run_ms) = self.last_run_ms
+        {
             let interval_ms = now_ms.saturating_sub(previous_run_ms);
 
-            //Na primeira medição de intervalo, inicializa o mínimo.
-            //Depois disso, mantém sempre o menor valor observado
-            self.min_interval_ms = match self.min_interval_ms {
+            self.last_interval_ms = Some(interval_ms);
+
+            self.min_interval_ms = match self.min_interval_ms
+            {
                 Some(current_min_ms) => Some(current_min_ms.min(interval_ms)),
                 None => Some(interval_ms),
             };
 
-            //Na primeira medição de intervalo, inicializa o máximo 
-            //Depois disso, matém sempre o maior valor observado 
-            self.max_interval_ms = match self.max_interval_ms {
+            self.max_interval_ms = match self.max_interval_ms
+            {
                 Some(current_max_ms) => Some(current_max_ms.max(interval_ms)),
                 None => Some(interval_ms),
             };
 
+            if let Some(expected_ms) = self.expected_interval_ms
+            {
+                let jitter = if interval_ms > expected_ms
+                {
+                    interval_ms - expected_ms
+                } else {
+                    expected_ms - interval_ms
+                };
+
+                self.jitter_accum = self.jitter_accum.saturating_add(jitter);
+                self.jitter_samples = self.jitter_samples.saturating_add(1);
+            }
         }
 
-        //saturating_add evita overflow em execuções muito longas 
         self.execution_count = self.execution_count.saturating_add(1);
-
-        //Registra o timestamp da execução mais recente 
         self.last_run_ms = Some(now_ms);
+    }
+
+    pub fn average_jitter_ms(&self) -> Option<u64>
+    {
+        if self.jitter_samples > 0
+        {
+            Some(self.jitter_accum / self.jitter_samples as u64)
+        }
+        else
+        {
+            None
+        }
     }
 }
 
@@ -80,6 +123,12 @@ pub struct SystemMonitor
 
     // Métricas da task de led
     pub led: TaskMetrics,
+
+    //Métricas da task do sensor AM2302
+    pub am2302_task: TaskMetrics,
+
+    //Métricas da task do sensor HC-SR04
+    pub hcsr04_task: TaskMetrics,
 
     //Snapshot mais recente do AM2302
     pub am2302: Am2302Snapshot,
@@ -103,6 +152,12 @@ impl SystemMonitor
 
             //Inicializa a entrada do LED com nome fixo 
             led: TaskMetrics::new("led"),
+
+            //Inicializa a entrada do AM2302 com nome fixo
+            am2302_task: TaskMetrics::new("am2302"),
+
+            //Inicializa a entrada do HC-SR04 com nome fixo
+            hcsr04_task: TaskMetrics::new("hcsr04"),
 
             //Estado inicial do AM2302 antes da primeira leitura 
             am2302: Am2302Snapshot::new(),
