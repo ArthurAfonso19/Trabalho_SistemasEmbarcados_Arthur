@@ -13,22 +13,16 @@ use embassy_stm32::Peri;
 use embassy_time::{with_timeout, Duration};
 use embedded_hal::delay::DelayNs;
 
-// Host segura a linha em LOW por 2 ms para iniciar o protocolo 
-const START_LOW_MS: u32 = 2;
-//Janela total de captura do frame inteiro 
-const FRAME_TIMEOUT_US: u64 = 6_000;
-//Limiar entre HIGH de bit 0 (~26 us) e HIGH de bit 1 (~70 us)
-const BIT_ONE_THRESHOLD_US: u16 = 50; 
-//Faixa valida para os pulsos de resposta de ~80 us do sensor
-const RESPONSE_PULSE_MIN_US: u16 = 60;   
+
+const START_LOW_MS: u32 = 2;            // Host segura a linha em LOW por 2 ms para iniciar o protocolo 
+const FRAME_TIMEOUT_US: u64 = 6_000;    //Janela total de captura do frame inteiro 
+const BIT_ONE_THRESHOLD_US: u16 = 50;   //Limiar entre HIGH de bit 0 (~26 us) e HIGH de bit 1 (~70 us)
+const RESPONSE_PULSE_MIN_US: u16 = 60;  //Faixa valida para os pulsos de resposta de ~80 us do sensor 
 const RESPONSE_PULSE_MAX_US: u16 = 100;
-//Faixa válida para o LOW fixo de ~50 us que antecede cada bit 
-const BIT_START_LOW_MIN_US: u16 = 35;   
+const BIT_START_LOW_MIN_US: u16 = 35;   //Faixa válida para o LOW fixo de ~50 us que antecede cada bit 
 const BIT_START_LOW_MAX_US: u16 = 65;   
-//Número de bordas capturadas na janela unica que fechou corretamente em hardware 
-const RAW_EDGE_COUNT: usize = 83; 
-//Mantido igual ao total para simplificar a busca do alinhamento do frame
-const VALID_FRAME_EDGE_COUNT: usize = 83;
+const RAW_EDGE_COUNT: usize = 83;       //Número de bordas capturadas na janela unica que fechou corretamente em hardware 
+const VALID_FRAME_EDGE_COUNT: usize = 83;   //Mantido igual ao total para simplificar a busca do alinhamento do frame
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Format)]
 pub enum Am2302CaptureError
@@ -118,8 +112,7 @@ where
         capture: &mut InputCapture<'_, T>,
         irq: impl Binding<D::Interrupt, dma::InterruptHandler<D>> + Copy,
     ) -> Result<[u16; RAW_EDGE_COUNT], Am2302CaptureError> {
-        // Buffer que recebera os timestamps das bordas.
-        let mut edges = [0u16; RAW_EDGE_COUNT];
+        let mut edges = [0u16; RAW_EDGE_COUNT]; // Buffer que recebera os timestamps das bordas.
 
         Self::clear_ccif();
 

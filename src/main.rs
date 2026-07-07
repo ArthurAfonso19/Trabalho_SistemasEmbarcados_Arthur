@@ -26,18 +26,11 @@ use embassy_stm32::time::{khz, Hertz};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::usart::{self, Uart};
 use embassy_stm32::{Config, Peri, bind_interrupts, interrupt};
-//use embassy_time::Timer;
+
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
-
-//use embassy_stm32::timer::pwm_input::PwmInput;
-//use embassy_stm32::time::hz;
-//use embassy_stm32::timer::CountingMode;
-//use embassy_stm32::rcc::low_level::RccPeripheral;
-//use embassy_stm32::timer::low_level::GeneralPurpose16bitInstance;
-//use embassy_stm32::pac::metadata::Peripheral;
 
 type AsyncI2c =
     I2c<'static, embassy_stm32::mode::Async, embassy_stm32::i2c::mode::Master>;
@@ -69,10 +62,6 @@ pub(crate) static MONITOR: Mutex<CriticalSectionRawMutex, SystemMonitor> =
 
 pub(crate) static LED_CONTROL: Mutex<CriticalSectionRawMutex, LedControl> = 
     Mutex::new(LedControl::new());
-
-//bind_interrupts!(struct Irqs {
-//    TIM2 => timer::CaptureCompareInterruptHandler<peripherals::TIM2>;
-//});
 
 bind_interrupts!(struct Irqs {
     LPUART1 => embassy_stm32::usart::InterruptHandler<peripherals::LPUART1>;
@@ -132,24 +121,10 @@ unsafe fn before_main() {
     }
 }
 
-/*
-#[interrupt]
-unsafe fn TIM3(){
-
-    // reset interrupt flag
-    //unsafe {
-    //    let pin = embassy_stm32::peripherals::PA5::steal();
-    //    let mut pin = Output::new(pin, Level::High, Speed::Low);
-    //    pin.set_high();
-    //}
-    //pac::TIM3.sr().modify(|r| r.set_uif(false));
-    info!("interrupt happens: tim20");
-}
-     */
-
+//Calcula o tamanho Bruto da seção em bytes 
 fn section_size(start: *const u8, end: *const u8) -> usize 
 {
-    //Calcula o tamanho Bruto da seção em bytes 
+    
     (end as usize).saturating_sub(start as usize)
 }
 
@@ -202,8 +177,6 @@ fn stm32_config() -> Config {
 }
 
 //Loga mensagens iniciais e verifica as variáveis de memória 
-//Se os valores aparecerem corretos no log, as seções especiais 
-// foram copiadas com sucesso
 fn log_startup() {
     info!("Hello World!");
 
@@ -213,8 +186,6 @@ fn log_startup() {
 }
 
 //Configura o botao do usuário (PC13) com interrupção EXRI
-//Usa Pull::Down interno para que o estado padrão 
-//  seja LOW e a borda de subida indique o pressionamento
 fn init_button(
     pc13: Peri<'static, peripherals::PC13>,
     exti13: Peri<'static, peripherals::EXTI13>,
@@ -224,8 +195,6 @@ fn init_button(
 }
 
 //Cria o ADC2 e o canal analogico a partir do pino PA7
-//Retorna uma tupla (Adc, AnyAdcChannel) para ser usada tanto
-//  no self-test quanto na task adc_task
 fn init_adc(
     adc2: Peri<'static, peripherals::ADC2>,
     pa7: Peri<'static, peripherals::PA7>,
@@ -240,8 +209,6 @@ fn init_adc(
 }
 
 //Faz uma leitura unica do ADC para validar o hardware ja no boot
-//O valor lido e logado via defmt. Se aparecer variando, o ADC
-//  está funcionando. Se ficar em zero ou máximo, algo pode estar errado
 fn log_initial_adc_sample(
     adc: &mut Adc<'static, ADC2>,
     adc_channel: &mut AnyAdcChannel<'static, ADC2>,
@@ -252,13 +219,10 @@ fn log_initial_adc_sample(
 }
 
 //Le o sensor de temperatura inteiro do chip uma vez no startup
-//Loga o valor cru. Não faz conversão para graus Celsius,
-// apenas confirma que o sensor responde 
 fn log_temperature_sample(adc1: Peri<'static, peripherals::ADC1>) {
     //ADC1 é usado exclusivamente para o sensor interno 
     let mut adc_temp = Adc::new(adc1, Default::default());
 
-    //Habilita o sensor de temperatura interno do chip 
     let mut temperature = adc_temp.enable_temperature();
 
     //Leitura única, síncrona 
@@ -305,7 +269,6 @@ fn init_pwm(
 
 //Inicializa o barramento I2C1, detecta o ADXL245, configura o 
 //  driver e faz uma leitura inicial de validação 
-//Retorna o driver Adxl345Async pronto para a task accel_task
 async fn init_accelerometer(
     i2c1: Peri<'static, peripherals::I2C1>,
     pb8: Peri<'static, peripherals::PB8>,
@@ -374,7 +337,6 @@ async fn adc_task(mut adc: Adc<'static, ADC2>, mut adc_pin: AnyAdcChannel<'stati
     }
 }
 
-// Declare async tasks
 #[embassy_executor::task]
 async fn button_task(mut button: ExtiInput<'static, embassy_stm32::mode::Async>) {
     info!("Press the USER button...");
@@ -391,7 +353,6 @@ async fn button_task(mut button: ExtiInput<'static, embassy_stm32::mode::Async>)
     }
 }
 
-// Declare async tasks
 #[embassy_executor::task]
 async fn uart_task(mut lpuart: Uart<'static, embassy_stm32::mode::Async>) {
     info!("UART started, type something...");
@@ -409,7 +370,6 @@ async fn uart_task(mut lpuart: Uart<'static, embassy_stm32::mode::Async>) {
     }
 }
 
-// Declare async tasks
 #[embassy_executor::task]
 async fn pwm_task(mut pwm: SimplePwm<'static, embassy_stm32::peripherals::TIM1>) {
     let mut ch1 = pwm.ch1();
@@ -428,7 +388,6 @@ async fn pwm_task(mut pwm: SimplePwm<'static, embassy_stm32::peripherals::TIM1>)
     }
 }
 
-// Declare async tasks
 #[embassy_executor::task]
 async fn accel_task(mut accel: AccelDevice) {
     let _ = accel.set_range(Range::G2).await;
@@ -499,7 +458,6 @@ async fn hcsr04_task(
                     monitor.hcsr04_task.mark_execution(now_ms);
                 }
 
-                // Mantem o log RTT para observacao em bancada.
                 info!("HC-SR04: {} cm", distance_cm);
             }
 
@@ -515,7 +473,6 @@ async fn hcsr04_task(
             }
         }
 
-        // Evita congestionamento acustico e da CPU.
         Timer::after_millis(500).await;
     }
 }
@@ -546,7 +503,7 @@ async fn mark_button_execution()
 
 pub(crate) async fn mark_led_execution()
 {
-        //Captura o instante atual em milissegundos 
+    //Captura o instante atual em milissegundos 
     let now_ms = Instant::now().as_millis() as u64;
 
     //Abre o monitor compartilhado por um período curto
@@ -585,7 +542,6 @@ async fn main(spawner: Spawner)
 
     // === 3. Self-checks de hardware 
     //Leitura unica do ADC em PA7 e do sensor de temperatura interno 
-    //Serve para validar que o ADC responde já no boot 
     let (mut adc, mut adc_channel) = init_adc(p.ADC2, p.PA7);
     log_initial_adc_sample(&mut adc, &mut adc_channel);
     log_temperature_sample(p.ADC1);
@@ -617,7 +573,6 @@ async fn main(spawner: Spawner)
         monitor.led.set_expected_interval(1000);
         //ADC: lendo a cada 500 ms dentro da task.
         monitor.adc.set_expected_interval(500);
-        //Botao: nao tem periodicidade fixa, fica como None.
         //AM2302: intervalo de 2s entre leituras.
         monitor.am2302_task.set_expected_interval(2000);
         //HC-SR04: intervalo de 500ms entre leituras.
@@ -625,10 +580,9 @@ async fn main(spawner: Spawner)
     }
 
     // === 6. Runtime concorrente ===
-    //Cada periférico 
+    
     spawner.spawn(unwrap!(adc_task(adc, adc_channel)));
     spawner.spawn(unwrap!(button_task(button)));
-    //spawner.spawn(unwrap!(uart_task(lpuart1)));
     spawner.spawn(unwrap!(shell_taks(lpuart1)));
     spawner.spawn(unwrap!(pwm_task(pwm)));
     spawner.spawn(unwrap!(accel_task(accel)));

@@ -2,10 +2,6 @@
 use defmt::info;
 use embassy_stm32::usart::Uart;
 use heapless::{String, Vec};
-
-//use crate::app::shell::RxState::Receiving;
-
-
 use crate::app::monitor::{self, TaskMetrics};
 use crate::drivers::hcsr04;
 use crate::{LED_CONTROL, MONITOR};
@@ -15,10 +11,8 @@ use core::fmt::Write;
 
 pub const RX_BUF_SIZE: usize = 64;
 pub const MAX_ARGS: usize = 8;
-
 pub const  RESPONSE_SIZE: usize = 512; 
 // Reposta textual gerada pela shell
-//Neste passo ainda não escrevemos direto na UART
 pub type  ShellResponse = String<RESPONSE_SIZE>;
 
 
@@ -54,7 +48,7 @@ pub struct CommandEntry
     pub help: &'static str,
 }
 
-//Tabela minima de comandos da shell nesta fase
+//Tabela de comandos da shell 
 pub const  COMMANDS: &[CommandEntry] = &[
     CommandEntry
     {
@@ -193,15 +187,11 @@ impl ShellBuffer
         }
 
         match byte {
-            // Se vier CR, considera fim de linha.
             b'\r' => {
                 self.state = RxState::LineReady;
                 Ok(())
             }
 
-            // Se vier LF sozinho, tambem fecha a linha.
-            // Se vier depois de um CRLF, o buffer pode ja estar vazio,
-            // entao ignoramos esse LF extra.
             b'\n' => {
                 if self.len == 0 {
                     Ok(())
@@ -311,8 +301,6 @@ pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
             if !cmd.args.is_empty() {
                 let _ = out.push_str("Erro: este comando nao aceita argumentos.\r\n");
             } else {
-                //Nesta fase, o status ainda é simples e fixo 
-                //Mais para frente pode mostrar uptimes, tarefas e memória 
                 let _ = out.push_str("Sistema ativo\r\n");
                 let _ = out.push_str("UART: ok\r\n");
                 let _ = out.push_str("Shell: inicial\r\n");
@@ -329,7 +317,6 @@ pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
                     (monitor.adc, monitor.button, monitor.led)
                 };
 
-                //Cabeçalho simples do comando 
                 let _ = out.push_str("Tasks monitoradas: \r\n");
 
                 write_task_metrics_line(&mut out, adc);
@@ -344,8 +331,7 @@ pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
             } else {
                 //Lê o tempo atual desde o boot 
                 let uptime_ms = Instant::now().as_millis();
-
-                //monta uma resposta textual curta e direta 
+ 
                 let _ = out.push_str("Uptime: ");
                 let _ = write!(out, "{}", uptime_ms);
                 let _ = out.push_str(" ms\r\n");
@@ -403,7 +389,6 @@ pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
                 }
 
                 ["off"] => {
-                    // Desliga o LED de forma deterministica 
                     let mut control = LED_CONTROL.lock().await;
                     control.set_enabled(false);
                     let _ = out.push_str("LED desligado.\r\n");
@@ -452,7 +437,6 @@ pub async fn execute_command(cmd: &ParsedCommand<'_>) -> ShellResponse
                     (monitor.am2302, monitor.hcsr04)
                 };
 
-                //Cabeçalho simples da resposta 
                 let _ = out.push_str("Sensores:\r\n"); 
 
                 match (am2302.temperature_c, am2302.humidity_rh, am2302.last_update_ms) 
@@ -616,8 +600,7 @@ pub async fn shell_taks(mut uart: Uart<'static, embassy_stm32::mode::Async>)
         match byte 
         {
             0x08 | 0x7F => {
-                //Se o usuário apertou Backspace/Delete e há algo no buffer,
-                //  apagamos do buffer e também da tela 
+                //Se o usuário apertou Backspace/Delete e há algo no buffer, apagamos do buffer e também da tela 
                 if shell.pop_last().is_some()
                 {
                     echo_input_byte(&mut uart, byte).await;
@@ -626,9 +609,9 @@ pub async fn shell_taks(mut uart: Uart<'static, embassy_stm32::mode::Async>)
             }
 
             b'\n' => {
-                //Ignora LF sozinho para evitar eco duplo em terminais CRLF
                 continue;
             }
+
             b'\r' => {
                 //Ecoa Enter como quebra de linha visual no terminal 
                 echo_input_byte(&mut uart, byte).await;
@@ -639,7 +622,7 @@ pub async fn shell_taks(mut uart: Uart<'static, embassy_stm32::mode::Async>)
             }
         }
 
-        //Alimenta o buffer da shell com o byte recebido s
+        //Alimenta o buffer da shell com o byte recebido 
         match shell.push_byte(rx[0])
         {
             Ok(()) => {}

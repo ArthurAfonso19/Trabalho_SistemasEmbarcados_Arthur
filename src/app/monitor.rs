@@ -7,18 +7,15 @@ use crate::drivers::hcsr04::PulseMeasureError;
 pub struct TaskMetrics
 {
     //Nome fixo da task, por exemplo: "adc" ou "button"
-    //&'static str: aponta para uma string literal que vive o programa inteiro 
     pub name: &'static str,
 
     //Quantas vezes a task marcou execucao 
     pub execution_count: u32,
 
     //Timestamp da última execução em milisegundos 
-    // Option é usada porque, no inicio, a task ainda pode não ter executdo 
     pub last_run_ms: Option<u64>,
 
     //Menor intervalo observado entre duas execucoes consecutivas 
-    // Também começa como None porque ainda não existe intervalo antes da segunda execução 
     pub min_interval_ms : Option<u64>,
 
     //Maior intervalo observado entre duas execuções consecutivas 

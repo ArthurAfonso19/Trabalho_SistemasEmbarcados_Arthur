@@ -39,7 +39,7 @@ pub trait PulseInput {
     ) -> Result<Duration, Self::Error>;
 }
 
-// Implementacao generica alinhada com o estilo do AM2302.
+// Implementacao generica 
 pub struct TimPulseInput<'d, T, P>
 where
     T: GeneralInstance4Channel<Word = u16>,
@@ -56,7 +56,7 @@ where
     T: GeneralInstance4Channel<Word = u16>,
     P: TimerPin<T, Ch2>,
 {
-    // Construtor minimo; a configuracao real entra no passo 4.
+    // Construtor minimo
     pub fn new(pin: Peri<'d, P>, timer: Peri<'d, T>) -> Self {
         Self { pin, timer }
     }
@@ -94,7 +94,7 @@ where
     }
 
     //Espera a borda de descida no mesmo pulso HIGH e devolve o timestamp 
-    async  fn wait_for_fall(
+    async fn wait_for_fall(
         capture: &mut InputCapture<'_, T>,
         timeout: Duration,
     ) -> Result<u16, PulseMeasureError>
