@@ -22,21 +22,6 @@ pub enum PulseMeasureError {
     TimeoutWaitingForFall,
     // Timestamps nao puderam ser interpretados.
     InvalidCapture,
-    // Overflow de contador ou caso ainda nao tratado.
-    Overflow,
-}
-
-// Trait consumida pelo driver do HC-SR04.
-pub trait PulseInput {
-    // Tipo de erro especifico da implementacao concreta.
-    type Error;
-
-    // Mede a largura do pulso HIGH do ECHO.
-    async fn measure_high_pulse(
-        &mut self,
-        // Tempo maximo de espera pela medicao.
-        timeout: Duration,
-    ) -> Result<Duration, Self::Error>;
 }
 
 // Implementacao generica 

@@ -1,12 +1,9 @@
-//use cortex_m::register::control;
 use defmt::info;
 use embassy_stm32::usart::Uart;
 use heapless::{String, Vec};
 use crate::app::monitor::{self, TaskMetrics};
-use crate::drivers::hcsr04;
 use crate::{LED_CONTROL, MONITOR};
 use embassy_time::Instant;
-use core::error;
 use core::fmt::Write;
 
 pub const RX_BUF_SIZE: usize = 64;

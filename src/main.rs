@@ -5,14 +5,12 @@ mod app;
 mod drivers;
 use crate::app::led_task::{led_task, LedControl};
 use crate::app::shell::shell_taks;
-use crate::app::monitor::{self, SystemMonitor};
+use crate::app::monitor::SystemMonitor;
 use crate::drivers::Hc_Sr_04::HcSr04;
 use crate::drivers::am2302_capture::Am2302Capture;
 use crate::drivers::hcsr04::TimPulseInput;
 
-//use cortex_m::Peripherals;
 use core::arch::asm;
-use core::error;
 use cortex_m_rt::pre_init;
 use defmt::*;
 use embassy_executor::Spawner;
